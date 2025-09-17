@@ -1,0 +1,19 @@
+version: v1
+plugins:
+  - name: go
+    out: server/go
+    opt: paths=source_relative
+  - name: go-grpc
+    out: server/go
+    opt: paths=source_relative,require_unimplemented_servers=false
+  - name: validate
+    out: server/go
+    opt: lang=go,paths=source_relative
+  - name: ts
+    out: client/ts/src/generated
+    path: buf.build/community/timostamm-protobuf-ts
+    opt: generate_dependencies
+  - name: ts
+    out: client/ts/src/generated
+    path: buf.build/community/timostamm-protobuf-ts
+    opt: grpc,generate_dependencies

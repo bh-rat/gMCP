@@ -1,0 +1,15 @@
+syntax = "proto3";
+package mcp.v0.meta;
+
+import "google/protobuf/descriptor.proto";
+
+option go_package = "./proto/mcp/v0";
+
+message ServerMeta {
+  string server_id      = 1; // e.g., "acme-weather"
+  string server_version = 2; // e.g., "1.0.0" (bump on ANY schema change)
+}
+
+extend google.protobuf.FileOptions {
+  ServerMeta mcp_server_meta = 777001;
+}

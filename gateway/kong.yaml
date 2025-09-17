@@ -1,0 +1,50 @@
+_format_version: "3.0"
+_transform: true
+
+services:
+  - name: mcp-service
+    host: mcp-server
+    port: 8443
+    protocol: grpc
+    routes:
+      - name: mcp-grpc-route
+        protocols: [grpc, grpcs]
+        paths: ["/mcp.v0.McpService/"]
+        strip_path: false
+      - name: grpc-reflection
+        protocols: [grpc, grpcs]
+        paths: ["/grpc.reflection.v1alpha.ServerReflection/"]
+        strip_path: false
+    retries: 2
+    connect_timeout: 5000
+    read_timeout: 60000
+    write_timeout: 60000
+
+plugins:
+  # JWT Authentication
+  - name: jwt
+    service: mcp-service
+    config:
+      key_claim_name: iss
+      secret_is_base64: false
+      claims_to_verify: ["exp"]
+
+  # Rate limiting per consumer
+  - name: rate-limiting
+    service: mcp-service
+    config:
+      minute: 100
+      hour: 1000
+      policy: local
+
+  # OpenTelemetry traces/metrics
+  - name: opentelemetry
+    service: mcp-service
+    config:
+      endpoint: "http://otel-collector:4317"
+      resource_attributes:
+        service.name: "kong-gateway"
+        deployment.environment: "dev"
+
+  # Prometheus metrics
+  - name: prometheus
