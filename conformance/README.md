@@ -71,13 +71,13 @@ Tests can be configured via environment variables:
 
 ### Positive Tests
 
-#### Valid Tool Call
+#### Valid Weather RPC
 ```go
-validReq := &weather.GetWeatherRequest{
+resp, err := weatherClient.GetWeather(ctx, &weather.GetWeatherRequest{
     Location: "Toronto",
     Units:    "metric",
-}
-// Should return weather data with final=true
+})
+// Should return weather data without streaming
 ```
 
 #### Tool Discovery
@@ -90,44 +90,21 @@ resp, err := client.ListTools(ctx, &mcpv0.ListToolsRequest{})
 
 #### Invalid Input
 ```go
-invalidReq := &weather.GetWeatherRequest{
-    Location: "", // Violates min_len=1 PGV rule
+_, err := weatherClient.GetWeather(ctx, &weather.GetWeatherRequest{
+    Location: "", // Violates min_len=1 validation
     Units:    "metric",
-}
-// Should return INVALID_ARGUMENT with validation error
-```
-
-#### Type Mismatch
-```go
-wrongAny := &anypb.Any{
-    TypeUrl: "type.googleapis.com/wrong.Type",
-    Value:   []byte("invalid"),
-}
-// Should return INVALID_ARGUMENT with type_url error
-```
-
-#### Unknown Tool
-```go
-req := &mcpv0.ToolCallRequest{
-    Name: "nonexistent_tool",
-}
-// Should return NOT_FOUND error
+})
+// Should return INVALID_ARGUMENT from the WeatherService RPC
 ```
 
 ## Expected Behaviors
 
-### Chunking Requirements
+### Unary RPC Expectations
 
-1. **Sequence Numbers**: Must start at 0 and increment
-2. **Final Chunk**: Exactly one chunk with `final=true`
-3. **Error Termination**: Error chunks must have `final=true`
-4. **Result Chunks**: May have multiple result chunks before final
+1. **Response**: Weather RPCs are unary and should return a single response payload.
+2. **Error Handling**: Servers must surface standard gRPC status codes (e.g., `InvalidArgument`).
+3. **Metadata**: Authorization metadata is passed via standard gRPC headers.
 
-### Error Handling
-
-1. **Error Codes**: Must use appropriate gRPC error codes
-2. **Error Messages**: Should be descriptive but not leak sensitive info
-3. **Error Details**: May include structured error details
 
 ### Performance Expectations
 

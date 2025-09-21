@@ -21,6 +21,7 @@ echo "🧹 Cleaning up existing MCP configuration..."
 # Delete existing routes and services
 curl -s -X DELETE $KONG_ADMIN_URL/routes/mcp-grpc-route > /dev/null 2>&1 || true
 curl -s -X DELETE $KONG_ADMIN_URL/routes/grpc-reflection > /dev/null 2>&1 || true
+curl -s -X DELETE $KONG_ADMIN_URL/routes/weather-grpc-route > /dev/null 2>&1 || true
 
 # Delete any unnamed routes for mcp service
 SERVICE_ID=$(curl -s $KONG_ADMIN_URL/services/mcp-service | jq -r '.id' 2>/dev/null || echo "")
@@ -53,6 +54,17 @@ ROUTE_RESPONSE=$(curl -s -X POST $KONG_ADMIN_URL/services/mcp-service/routes \
   --data strip_path=false)
 
 echo "Route response: $ROUTE_RESPONSE"
+
+# Create Weather Service route for direct RPCs
+echo "🛣️  Creating Weather gRPC route..."
+WEATHER_ROUTE_RESPONSE=$(curl -s -X POST $KONG_ADMIN_URL/services/mcp-service/routes \
+  --data name=weather-grpc-route \
+  --data 'protocols[]=grpc' \
+  --data 'protocols[]=grpcs' \
+  --data 'paths[]=/examples.weather.WeatherService/' \
+  --data strip_path=false)
+
+echo "Weather Route response: $WEATHER_ROUTE_RESPONSE"
 
 # Create gRPC Reflection route (no auth)
 echo "🛣️  Creating gRPC reflection route..."
@@ -107,6 +119,10 @@ fi
 # Enable JWT plugin on the MCP route only (not on reflection)
 echo "🔐 Enabling JWT authentication on MCP route..."
 curl -s -X POST $KONG_ADMIN_URL/routes/mcp-grpc-route/plugins \
+  --data name=jwt \
+  --data config.key_claim_name=iss
+
+curl -s -X POST $KONG_ADMIN_URL/routes/weather-grpc-route/plugins \
   --data name=jwt \
   --data config.key_claim_name=iss
 

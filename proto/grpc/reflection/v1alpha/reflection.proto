@@ -1,6 +1,8 @@
 syntax = "proto3";
 package grpc.reflection.v1alpha;
 
+option go_package = "google.golang.org/grpc/reflection/grpc_reflection_v1alpha";
+
 service ServerReflection {
   rpc ServerReflectionInfo(stream ServerReflectionRequest) returns (stream ServerReflectionResponse);
 }

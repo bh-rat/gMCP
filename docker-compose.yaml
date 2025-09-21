@@ -39,8 +39,8 @@ services:
   # MCP Server
   mcp-server:
     build:
-      context: ./server/go
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: server/go/Dockerfile
     ports:
       - "9443:8443"
     networks:

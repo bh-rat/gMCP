@@ -178,12 +178,12 @@ async function handleCallTool(data: any, res: http.ServerResponse) {
   const opts = (useAuth === 'jwt' && jwtToken) ? { metadata: { authorization: `Bearer ${jwtToken}` } } : info.options;
   const client = new McpClient(info.address, opts);
   await client.connect();
-  const toolSchema = { inputSchema: deriveSchemaForTool(toolName) };
-  const validationErrors = client.validateInputs(toolSchema as any, args || {});
+  const validationErrors = await client.validateInputs(toolName, args || {});
+  console.log('🔍 validation errors:', validationErrors);
   if (validationErrors.length > 0) {
     client.close();
     res.writeHead(400, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ success: false, error: 'Client validation failed', validation_errors: validationErrors }));
+    res.end(JSON.stringify({ success: false, error: validationErrors[0], validation_errors: validationErrors }));
     return;
   }
   const results: any[] = [];
@@ -381,6 +381,3 @@ function deriveSchemaFromType(typeName: string): any {
   }
   return { type: 'object', properties: {}, required: [] };
 }
-
-
-

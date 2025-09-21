@@ -1,25 +1,22 @@
 FROM golang:1.23-alpine AS builder
 
-# Install protoc and protoc-gen-go
-RUN apk add --no-cache protobuf-dev
-RUN go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
-
 WORKDIR /app
-COPY go.mod go.sum ./
+
+# Copy Go module definition and download deps
+COPY server/go/go.mod server/go/go.sum ./
 RUN go mod download
 
-COPY . .
+# Copy server sources and generated protobuf stubs
+COPY server/go ./server/go
 
-# Generate Go code from local proto files
-RUN protoc --go_out=. --go_opt=paths=source_relative proto/weather.proto
-
-RUN CGO_ENABLED=0 GOOS=linux go build -o mcp-server ./main.go
+WORKDIR /app/server/go
+RUN CGO_ENABLED=0 GOOS=linux go build -o /mcp-server ./main.go
 
 FROM alpine:latest
 RUN apk --no-cache add ca-certificates
 WORKDIR /root/
 
-COPY --from=builder /app/mcp-server .
+COPY --from=builder /mcp-server .
 
 EXPOSE 8443
 

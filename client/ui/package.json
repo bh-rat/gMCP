@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "tsc -p tsconfig.server.json && vite build",
+    "build": "vite build && tsc -p tsconfig.server.json",
     "start": "node dist/server.js",
     "dev": "ts-node src/server.ts",
     "vite": "vite",
@@ -27,4 +27,3 @@
     "vite": "^4.4.0"
   }
 }
-

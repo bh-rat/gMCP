@@ -1,7 +1,10 @@
 import * as grpc from '@grpc/grpc-js';
 import * as protoLoader from '@grpc/proto-loader';
 import * as pb from 'protobufjs';
-import { FileDescriptorProto } from 'google-protobuf/google/protobuf/descriptor_pb';
+import { FileDescriptorProto, DescriptorProto as GDescriptorProto, FieldDescriptorProto as GFieldDescriptorProto } from 'google-protobuf/google/protobuf/descriptor_pb';
+import { FieldRulesSchema } from './generated/validate/validate_pb';
+import { fromBinary } from '@bufbuild/protobuf';
+const pbDescriptor = require('protobufjs/ext/descriptor');
 // @ts-ignore: patch protobufjs Root with fromDescriptor if available
 try { require('protobufjs/ext/descriptor'); } catch {}
 
@@ -21,6 +24,7 @@ export interface DescriptorInfo {
 export class DescriptorCache {
   private cache = new Map<string, DescriptorInfo>();
   private rootCache = new Map<string, pb.Root>();
+  private pgvCache = new Map<string, Record<string, Record<string, any>>>();
 
   private getCacheKey(address: string, packageVersion: string): string {
     return `${address}:${packageVersion}`;
@@ -35,7 +39,6 @@ export class DescriptorCache {
 
     let cached = this.cache.get(cacheKey);
     if (!cached) {
-      console.log('🔍 Using gRPC reflection to discover server services...');
 
       try {
         const services = await this.listServicesUsingReflection(address, metadata);
@@ -47,18 +50,14 @@ export class DescriptorCache {
           reflectionData: { services }
         };
 
-        console.log('✅ Server reflection data discovered:');
-        console.log(`  Services: ${serverMeta.services.join(', ')}`);
-        console.log(`  Methods: ${Object.keys(serverMeta.methods).length} service(s)`);
 
       } catch (error: any) {
-        console.log('⚠️  Reflection failed, using fallback metadata:', error.message);
-        cached = {
-          meta: {
-            serverId: 'unknown-fallback',
-            serverVersion: '1.0.0',
+       cached = {
+         meta: {
+           serverId: 'unknown-fallback',
+           serverVersion: '1.0.0',
             services: ['mcp.v0.McpService'],
-            methods: { 'mcp.v0.McpService': ['ListTools', 'CallTool'] }
+            methods: { 'mcp.v0.McpService': ['ListTools'] }
           },
           available: false,
           reflectionData: null
@@ -73,7 +72,6 @@ export class DescriptorCache {
 
   private async listServicesUsingReflection(address: string, metadata?: grpc.Metadata): Promise<string[]> {
     return new Promise((resolve, reject) => {
-      console.log('📡 Creating reflection client...');
 
       try {
         const reflectionProto = this.createReflectionPackageDefinition() as any;
@@ -82,30 +80,24 @@ export class DescriptorCache {
           grpc.credentials.createInsecure()
         );
 
-        console.log('📡 Making reflection call...');
 
         const call = client.ServerReflectionInfo(metadata || new grpc.Metadata());
 
         call.on('data', (response: any) => {
-          console.log('📦 Received reflection response:', response);
 
           if (response.list_services_response) {
             const services = response.list_services_response.service.map((svc: any) => svc.name);
-            console.log('✅ Discovered services via reflection:', services);
             call.end();
             resolve(services);
           }
         });
 
         call.on('error', (error: any) => {
-          console.log('❌ Reflection call error:', error.message);
           call.end();
           reject(error);
         });
 
-        call.on('end', () => {
-          console.log('🏁 Reflection call ended');
-        });
+        call.on('end', () => {});
 
         // Send list services request
         call.write({
@@ -120,7 +112,6 @@ export class DescriptorCache {
         }, 5000);
 
       } catch (error: any) {
-        console.log('❌ Failed to create reflection client:', error.message);
         reject(error);
       }
     });
@@ -144,7 +135,7 @@ export class DescriptorCache {
 
     for (const service of services) {
       if (service === 'mcp.v0.McpService') {
-        methods[service] = ['ListTools', 'CallTool'];
+        methods[service] = ['ListTools'];
       } else if (service === 'grpc.reflection.v1alpha.ServerReflection') {
         methods[service] = ['ServerReflectionInfo'];
       }
@@ -155,7 +146,6 @@ export class DescriptorCache {
 
   clearCache(): void {
     this.cache.clear();
-    console.log('🗑️  Reflection cache cleared');
   }
 
   // --- New: Dynamic descriptor fetching and Root building ---
@@ -244,14 +234,359 @@ export class DescriptorCache {
     const files: any[] = [];
     for (const bytes of fdpBytes) {
       try {
+        const decoded = pbDescriptor.FileDescriptorProto.decode(bytes);
+        const obj = pbDescriptor.FileDescriptorProto.toObject(decoded, {
+          defaults: true,
+          arrays: true,
+          objects: true,
+          longs: String,
+          enums: Number
+        });
+        this.normalizeDescriptorEnums(obj);
+        files.push(obj);
+        continue;
+      } catch (err: any) {
+      }
+      try {
         const fdp = FileDescriptorProto.deserializeBinary(bytes);
-        const obj = fdp.toObject();
-        files.push(this.normalizeDescriptorJson(obj));
-      } catch {
-        // skip
+        const obj = this.normalizeDescriptorJson(fdp.toObject(true));
+        this.normalizeDescriptorEnums(obj);
+        files.push(obj);
+      } catch (err: any) {
       }
     }
     return { file: files };
+  }
+
+  // --- PGV extraction ---
+  async getPgvRuleIndex(address: string, fullyQualifiedTypeNames: string[], metadata?: grpc.Metadata): Promise<Record<string, Record<string, any>>> {
+    const key = `${address}`;
+    const cached = this.pgvCache.get(key);
+    if (cached) return cached;
+
+    const fdpBytes = await this.fetchFileDescriptors(address, Array.from(new Set(fullyQualifiedTypeNames.filter(Boolean))), metadata);
+    const index: Record<string, Record<string, any>> = {};
+    let totalAdded = 0;
+    for (const bytes of fdpBytes) {
+      try {
+        const fdp = FileDescriptorProto.deserializeBinary(bytes);
+        const pkg = fdp.getPackage();
+        const msgList = fdp.getMessageTypeList();
+        for (const m of msgList) {
+          totalAdded += this.extractPgvFromMessage(pkg || '', m, index, []);
+        }
+      } catch {
+        // ignore
+      }
+    }
+    if (totalAdded === 0) {
+      // Fallback: parse directly from raw descriptor bytes to preserve unknown extensions
+      for (const bytes of fdpBytes) {
+        try {
+          this.extractPgvFromRawFile(bytes, index);
+        } catch {
+          // ignore
+        }
+      }
+    }
+    this.pgvCache.set(key, index);
+    return index;
+  }
+
+  private extractPgvFromMessage(pkg: string, msg: GDescriptorProto, index: Record<string, Record<string, any>>, parents: string[]): number {
+    const parts = [...parents, msg.getName() || ''];
+    const fqtn = (pkg ? `${pkg}.` : '') + parts.filter(Boolean).join('.');
+
+    const fields = msg.getFieldList();
+    let added = 0;
+    for (const f of fields) {
+      const rules = this.readPgvRulesFromFieldOptions(f);
+      if (rules) {
+        if (!index[fqtn]) index[fqtn] = {};
+        const name = f.getJsonName() || f.getName() || '';
+        index[fqtn][name] = rules;
+        added++;
+      }
+    }
+
+    const nested = msg.getNestedTypeList();
+    for (const n of nested) {
+      added += this.extractPgvFromMessage(pkg, n, index, parts);
+    }
+    return added;
+  }
+
+  private readPgvRulesFromFieldOptions(field: GFieldDescriptorProto): any | null {
+    const opts = field.getOptions();
+    if (!opts) return null;
+    try {
+      const buf = opts.serializeBinary();
+      return this.readPgvFromOptionsBytes(buf);
+    } catch {
+      return null;
+    }
+  }
+
+  private findExtension(buf: Uint8Array, fieldNo: number): Uint8Array | null {
+    let off = 0;
+    while (off < buf.length) {
+      const [tag, o1] = this.readVarint(buf, off); off = o1;
+      const fn = tag >>> 3; const wt = tag & 7;
+      if (fn === fieldNo && wt === 2) {
+        const [len, o2] = this.readVarint(buf, off); off = o2;
+        const end = off + len;
+        return buf.subarray(off, end);
+      }
+      off = this.skipField(buf, off, wt);
+    }
+    return null;
+  }
+
+  private readVarint(buf: Uint8Array, off: number): [number, number] {
+    let x = 0; let s = 0; let o = off;
+    while (o < buf.length) {
+      const b = buf[o++];
+      x |= (b & 0x7f) << s; s += 7;
+      if ((b & 0x80) === 0) break;
+    }
+    return [x >>> 0, o];
+  }
+
+  // Raw parse to preserve unknown FieldOptions extensions
+  private extractPgvFromRawFile(buf: Uint8Array, index: Record<string, Record<string, any>>): void {
+    let off = 0;
+    let pkg = '';
+    const messageBodies: Uint8Array[] = [];
+    while (off < buf.length) {
+      const [tag, o1] = this.readVarint(buf, off); off = o1;
+      const fn = tag >>> 3; const wt = tag & 7;
+      if (fn === 2 && wt === 2) { // package
+        const [len, o2] = this.readVarint(buf, off); off = o2;
+        const end = off + len;
+        pkg = new TextDecoder().decode(buf.subarray(off, end));
+        off = end;
+        continue;
+      }
+      if (fn === 4 && wt === 2) { // message_type
+        const [len, o2] = this.readVarint(buf, off); off = o2;
+        const end = off + len;
+        messageBodies.push(buf.subarray(off, end));
+        off = end;
+        continue;
+      }
+      off = this.skipField(buf, off, wt);
+    }
+    for (const body of messageBodies) {
+      this.extractPgvFromRawMessage(pkg, body, index, []);
+    }
+  }
+
+  private extractPgvFromRawMessage(pkg: string, body: Uint8Array, index: Record<string, Record<string, any>>, parents: string[]): void {
+    let off = 0;
+    let name = '';
+    const fields: Uint8Array[] = [];
+    const nestedMsgs: Uint8Array[] = [];
+    while (off < body.length) {
+      const [tag, o1] = this.readVarint(body, off); off = o1;
+      const fn = tag >>> 3; const wt = tag & 7;
+      if (fn === 1 && wt === 2) { // name
+        const [len, o2] = this.readVarint(body, off); off = o2;
+        const end = off + len;
+        name = new TextDecoder().decode(body.subarray(off, end));
+        off = end;
+        continue;
+      }
+      if (fn === 2 && wt === 2) { // field
+        const [len, o2] = this.readVarint(body, off); off = o2;
+        const end = off + len;
+        fields.push(body.subarray(off, end));
+        off = end;
+        continue;
+      }
+      if (fn === 3 && wt === 2) { // nested_type
+        const [len, o2] = this.readVarint(body, off); off = o2;
+        const end = off + len;
+        nestedMsgs.push(body.subarray(off, end));
+        off = end;
+        continue;
+      }
+      off = this.skipField(body, off, wt);
+    }
+    const fqtn = (pkg ? `${pkg}.` : '') + [...parents, name].filter(Boolean).join('.');
+    for (const f of fields) this.extractPgvFromRawField(fqtn, f, index);
+    for (const n of nestedMsgs) this.extractPgvFromRawMessage(pkg, n, index, [...parents, name]);
+  }
+
+  private extractPgvFromRawField(fqtn: string, body: Uint8Array, index: Record<string, Record<string, any>>): void {
+    let off = 0;
+    let name = '';
+    let jsonName = '';
+    let optionsBytes: Uint8Array | null = null;
+    while (off < body.length) {
+      const [tag, o1] = this.readVarint(body, off); off = o1;
+      const fn = tag >>> 3; const wt = tag & 7;
+      if (fn === 1 && wt === 2) { // name
+        const [len, o2] = this.readVarint(body, off); off = o2;
+        const end = off + len;
+        name = new TextDecoder().decode(body.subarray(off, end));
+        off = end;
+        continue;
+      }
+      if (fn === 10 && wt === 2) { // json_name
+        const [len, o2] = this.readVarint(body, off); off = o2;
+        const end = off + len;
+        jsonName = new TextDecoder().decode(body.subarray(off, end));
+        off = end;
+        continue;
+      }
+      if (fn === 8 && wt === 2) { // options
+        const [len, o2] = this.readVarint(body, off); off = o2;
+        const end = off + len;
+        optionsBytes = body.subarray(off, end);
+        off = end;
+        continue;
+      }
+      off = this.skipField(body, off, wt);
+    }
+    if (optionsBytes) {
+      const rulesObj = this.readPgvFromOptionsBytes(optionsBytes);
+      if (rulesObj) {
+        if (!index[fqtn]) index[fqtn] = {};
+        const key = jsonName || name;
+        index[fqtn][key] = rulesObj;
+      }
+    }
+  }
+
+  private skipField(buf: Uint8Array, off: number, wt: number): number {
+    switch (wt) {
+      case 0: { const [, o] = this.readVarint(buf, off); return o; }
+      case 1: return off + 8;
+      case 2: { const [l, o] = this.readVarint(buf, off); return o + l; }
+      case 5: return off + 4;
+      default: return off;
+    }
+  }
+
+  private readPgvFromOptionsBytes(buf: Uint8Array): any | null {
+    // First, try resolved extension field 1071
+    const ext = this.findExtension(buf, 1071);
+    if (ext) {
+      try {
+        const decoded = fromBinary(FieldRulesSchema, ext);
+        const obj: any = { ...decoded } as any;
+        if (obj?.type?.case === 'string' && obj.type?.value) {
+          const v = obj.type.value;
+          if (typeof v.minLen === 'bigint') v.minLen = Number(v.minLen);
+          if (typeof v.maxLen === 'bigint') v.maxLen = Number(v.maxLen);
+          if (typeof v.len === 'bigint') v.len = Number(v.len);
+        }
+        return obj;
+      } catch {
+        // fall through
+      }
+    }
+    // Fallback: parse uninterpreted_option (field 999)
+    const candidates = this.readUninterpretedOptions(buf);
+    for (const u of candidates) {
+      const path = u.path; // array of name parts, with parentheses preserved for extensions
+      if (path.length >= 2 && path[0] === '(validate.rules)') {
+        const rules: any = {};
+        if (path[1] === 'message') {
+          const txt = u.aggregate || '';
+          if (/required\s*:\s*true/i.test(txt)) {
+            rules.message = { required: true };
+          }
+        } else if (path[1] === 'string') {
+          const txt = u.aggregate || '';
+          const sr: any = {};
+          const m = txt.match(/min_len\s*:\s*(\d+)/i);
+          if (m) sr.minLen = Number(m[1]);
+          const inMatch = txt.match(/in\s*:\s*\[(.*?)\]/i);
+          if (inMatch) {
+            const items = inMatch[1]
+              .split(/,(?=(?:[^\"]*\"[^\"]*\")*[^\"]*$)/)
+              .map(s => s.trim())
+              .map(s => s.replace(/^\"|\"$/g, ''))
+              .filter(Boolean);
+            if (items.length > 0) sr.in = items;
+          }
+          rules.type = { case: 'string', value: sr };
+        }
+        if (rules.message || rules.type) return rules;
+      }
+    }
+    return null;
+  }
+
+  private readUninterpretedOptions(optionsBytes: Uint8Array): Array<{ path: string[]; aggregate?: string }> {
+    const out: Array<{ path: string[]; aggregate?: string }> = [];
+    let off = 0;
+    while (off < optionsBytes.length) {
+      const [tag, o1] = this.readVarint(optionsBytes, off); off = o1;
+      const fn = tag >>> 3; const wt = tag & 7;
+      if (fn === 999 && wt === 2) {
+        const [len, o2] = this.readVarint(optionsBytes, off); off = o2;
+        const end = off + len;
+        const u = this.decodeUninterpretedOption(optionsBytes.subarray(off, end));
+        out.push(u);
+        off = end;
+        continue;
+      }
+      off = this.skipField(optionsBytes, off, wt);
+    }
+    return out;
+  }
+
+  private decodeUninterpretedOption(buf: Uint8Array): { path: string[]; aggregate?: string } {
+    let off = 0;
+    const path: string[] = [];
+    let aggregate: string | undefined;
+    while (off < buf.length) {
+      const [tag, o1] = this.readVarint(buf, off); off = o1;
+      const fn = tag >>> 3; const wt = tag & 7;
+      if (fn === 2 && wt === 2) { // name
+        const [len, o2] = this.readVarint(buf, off); off = o2;
+        const end = off + len;
+        const namePart = this.decodeNamePart(buf.subarray(off, end));
+        path.push(namePart);
+        off = end;
+        continue;
+      }
+      if (fn === 8 && wt === 2) { // aggregate_value
+        const [len, o2] = this.readVarint(buf, off); off = o2;
+        const end = off + len;
+        aggregate = new TextDecoder().decode(buf.subarray(off, end));
+        off = end;
+        continue;
+      }
+      off = this.skipField(buf, off, wt);
+    }
+    return { path, aggregate };
+  }
+
+  private decodeNamePart(buf: Uint8Array): string {
+    let off = 0;
+    let name = '';
+    let isExt = false;
+    while (off < buf.length) {
+      const [tag, o1] = this.readVarint(buf, off); off = o1;
+      const fn = tag >>> 3; const wt = tag & 7;
+      if (fn === 1 && wt === 2) { // name_part
+        const [len, o2] = this.readVarint(buf, off); off = o2;
+        const end = off + len;
+        name = new TextDecoder().decode(buf.subarray(off, end));
+        off = end;
+        continue;
+      }
+      if (fn === 2 && wt === 0) { // is_extension
+        const [val, o2] = this.readVarint(buf, off); off = o2;
+        isExt = (val & 1) === 1;
+        continue;
+      }
+      off = this.skipField(buf, off, wt);
+    }
+    return isExt ? `(${name})` : name;
   }
 
   private normalizeDescriptorJson(obj: any): any {
@@ -273,6 +608,71 @@ export class DescriptorCache {
       }
     }
     return out;
+  }
+
+  private normalizeDescriptorEnums(fileObj: any): void {
+    if (!fileObj) return;
+    const typeEnum = pbDescriptor.FieldDescriptorProto?.Type ?? {};
+    const labelEnum = pbDescriptor.FieldDescriptorProto?.Label ?? {};
+    const fallbackTypeEnum: Record<string, number> = {
+      TYPE_DOUBLE: 1,
+      TYPE_FLOAT: 2,
+      TYPE_INT64: 3,
+      TYPE_UINT64: 4,
+      TYPE_INT32: 5,
+      TYPE_FIXED64: 6,
+      TYPE_FIXED32: 7,
+      TYPE_BOOL: 8,
+      TYPE_STRING: 9,
+      TYPE_GROUP: 10,
+      TYPE_MESSAGE: 11,
+      TYPE_BYTES: 12,
+      TYPE_UINT32: 13,
+      TYPE_ENUM: 14,
+      TYPE_SFIXED32: 15,
+      TYPE_SFIXED64: 16,
+      TYPE_SINT32: 17,
+      TYPE_SINT64: 18,
+    };
+    const fallbackLabelEnum: Record<string, number> = {
+      LABEL_OPTIONAL: 1,
+      LABEL_REQUIRED: 2,
+      LABEL_REPEATED: 3,
+    };
+
+    const fixMessage = (msg: any): void => {
+      if (!msg) return;
+      if (!Array.isArray(msg.oneofDecl) || msg.oneofDecl.length === 0) {
+        if (Array.isArray(msg.field)) {
+          for (const field of msg.field) {
+            if (field && typeof field.oneofIndex === 'number') {
+              delete field.oneofIndex;
+            }
+          }
+        }
+      }
+      if (Array.isArray(msg.field)) {
+        for (const field of msg.field) {
+          if (typeof field.type === 'string') {
+            field.type = typeEnum[field.type] ?? fallbackTypeEnum[field.type] ?? field.type;
+          }
+          if (typeof field.label === 'string') {
+            field.label = labelEnum[field.label] ?? fallbackLabelEnum[field.label] ?? field.label;
+          }
+        }
+      }
+      if (Array.isArray(msg.nestedType)) {
+        for (const nested of msg.nestedType) {
+          fixMessage(nested);
+        }
+      }
+    };
+
+    if (Array.isArray(fileObj.messageType)) {
+      for (const msg of fileObj.messageType) {
+        fixMessage(msg);
+      }
+    }
   }
 
   private createReflectionPackageDefinition(): any {
@@ -327,5 +727,17 @@ export class DynamicProtoCodec {
       throw new Error(`Type not found in root: ${fqtn}`);
     }
     return t as pb.Type;
+  }
+
+  createMessage(fqtn: string, jsonValue: any): pb.Message<{}> {
+    const Type = this.lookupType(fqtn);
+    if (jsonValue == null || Object.keys(jsonValue).length === 0) {
+      return Type.create();
+    }
+    const err = Type.verify(jsonValue);
+    if (err) {
+      throw new Error(`Invalid ${fqtn}: ${err}`);
+    }
+    return Type.fromObject(jsonValue);
   }
 }

@@ -1,17 +1,16 @@
 syntax = "proto3";
 package mcp.v0;
 
-import "google/protobuf/any.proto";
+import "validate/validate.proto";
 
 option go_package = "./proto/mcp/v0";
 
 service McpService {
   rpc ListTools (ListToolsRequest) returns (ListToolsResponse);
-  rpc CallTool  (ToolCallRequest)  returns (stream ToolCallChunk);
 }
 
 message ListToolsRequest {
-  string cursor = 1;
+  string cursor = 1 [(validate.rules).string = {max_len: 1024}];
   int32  page_size = 2;
 }
 
@@ -22,40 +21,12 @@ message ListToolsResponse {
 }
 
 message Tool {
-  string name = 1;
-  string title = 2;
+  string name = 1 [(validate.rules).string = {min_len: 1}];
+  string title = 2 [(validate.rules).string = {min_len: 1}];
   string description = 3;
-  string input_type  = 4;  // fully-qualified proto message name
-  string output_type = 5;  // fully-qualified proto message name
+  string input_type  = 4 [(validate.rules).string = {min_len: 1}];  // fully-qualified proto message name
+  string output_type = 5 [(validate.rules).string = {min_len: 1}];  // fully-qualified proto message name
+  string grpc_service = 6; // optional fully-qualified service name
+  string grpc_method  = 7; // optional method on the service
   map<string,string> annotations = 9; // e.g., {"idempotent":"true"}
-}
-
-message ToolCallRequest {
-  string name = 1;                         // must match Tool.name
-  google.protobuf.Any typed_arguments = 2; // must match Tool.input_type
-  string request_id = 3;                   // tracing/idempotency
-}
-
-message ToolCallChunk {
-  oneof payload {
-    google.protobuf.Any result = 1;  // packed Tool.output_type
-    ToolError           error  = 2;  // terminal
-  }
-  uint32 seq  = 9;     // 0..N, per-call seq
-  bool   final= 10;    // exactly one final=true ends stream
-}
-
-message ToolError {
-  enum Code {
-    UNKNOWN            = 0;
-    INVALID_ARGUMENT   = 1;
-    NOT_FOUND          = 2;
-    PERMISSION_DENIED  = 3;
-    DEADLINE_EXCEEDED  = 4;
-    INTERNAL           = 5;
-    UNAVAILABLE        = 6;
-  }
-  Code  code = 1;
-  string message = 2;
-  google.protobuf.Any details = 3;
 }
