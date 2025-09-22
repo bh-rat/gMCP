@@ -1,0 +1,36 @@
+syntax = "proto3";
+package examples.weather;
+
+import "validate/validate.proto";
+
+option go_package = "mcp-server/proto/weather";
+
+message GetWeatherRequest {
+  string location = 1 [(validate.rules).string = {min_len: 1}];
+  string units    = 2 [(validate.rules).string = {in: ["metric", "imperial"]}];
+}
+
+message GetWeatherResponse {
+  double temperature_c = 1;
+  string conditions    = 2;
+  uint32 humidity      = 3;
+}
+
+message GetWeatherForecastRequest {
+  string location = 1 [(validate.rules).string = {min_len: 1}];
+  string date     = 2 [(validate.rules).string = {min_len: 1}];
+  string units    = 3 [(validate.rules).string = {in: ["metric", "imperial"]}];
+}
+
+message GetWeatherForecastResponse {
+  double temperature_c = 1;
+  string conditions    = 2;
+  uint32 humidity      = 3;
+  string date          = 4;
+  string location      = 5;
+}
+
+service WeatherService {
+  rpc GetWeather(GetWeatherRequest) returns (GetWeatherResponse);
+  rpc GetWeatherForecast(GetWeatherForecastRequest) returns (GetWeatherForecastResponse);
+}
