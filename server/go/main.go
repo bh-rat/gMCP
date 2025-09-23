@@ -8,6 +8,9 @@ import (
 	"os"
 	"time"
 
+	"buf.build/go/protovalidate"
+	_ "buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go/buf/validate"
+
 	mcpv0 "mcp-server/mcp/v0"
 	weather "mcp-server/proto/weather"
 
@@ -23,11 +26,12 @@ import (
 
 type weatherService struct {
 	weather.UnimplementedWeatherServiceServer
+	validator protovalidate.Validator
 }
 
 func (s *weatherService) GetWeather(ctx context.Context, req *weather.GetWeatherRequest) (*weather.GetWeatherResponse, error) {
-	if req.GetLocation() == "" {
-		return nil, status.Error(codes.InvalidArgument, "location is required")
+	if err := s.validator.Validate(req); err != nil {
+		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
 
 	return &weather.GetWeatherResponse{
@@ -38,8 +42,8 @@ func (s *weatherService) GetWeather(ctx context.Context, req *weather.GetWeather
 }
 
 func (s *weatherService) GetWeatherForecast(ctx context.Context, req *weather.GetWeatherForecastRequest) (*weather.GetWeatherForecastResponse, error) {
-	if req.GetLocation() == "" {
-		return nil, status.Error(codes.InvalidArgument, "location is required")
+	if err := s.validator.Validate(req); err != nil {
+		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
 
 	if err := validateForecastDate(req.GetDate()); err != nil {
@@ -129,13 +133,18 @@ func validateForecastDate(dateStr string) error {
 func main() {
 	// Inject server meta into reflection descriptors so clients can read it
 	registerServerMeta()
+
+	validator, err := protovalidate.New()
+	if err != nil {
+		log.Fatalf("Failed to initialize validator: %v", err)
+	}
 	lis, err := net.Listen("tcp", ":8443")
 	if err != nil {
 		log.Fatalf("Failed to listen: %v", err)
 	}
 
 	s := grpc.NewServer()
-	weatherSvc := &weatherService{}
+	weatherSvc := &weatherService{validator: validator}
 	svc := &simpleService{}
 
 	weather.RegisterWeatherServiceServer(s, weatherSvc)

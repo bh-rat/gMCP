@@ -6,7 +6,7 @@ import { create as createMessage } from "@bufbuild/protobuf";
 import * as grpc from "@grpc/grpc-js";
 import { Buffer } from "buffer";
 import { DescriptorCache } from "./reflection";
-import "./generated/validate/validate_pb.js";
+import "./generated/buf/validate/validate_pb.js";
 
 interface ToolMetadata {
     name: string;
@@ -170,88 +170,38 @@ export class RealMcpClient {
                 return [verifyError];
             }
 
-            // Extract and enforce PGV rules via buf-generated extensions
-            const pgvIndex = await this.descriptors.getPgvRuleIndex(this.address, [inputFqtn], metadata);
-            const violations = this.applyPgvIndexRules(inputFqtn, requestType, candidate, pgvIndex);
-            if (violations.length > 0) {
-                return violations;
+            const { registry, validator } = await this.descriptors.getProtovalidateRuntime(
+                this.address,
+                [inputFqtn],
+                metadata
+            );
+            const messageDesc = registry.getMessage(inputFqtn);
+            if (!messageDesc) {
+                return [`Unable to locate descriptor for type '${inputFqtn}' via reflection.`];
             }
 
-            // Attempt to materialize the request message to surface nested errors.
+            let protoMessage;
+            try {
+                protoMessage = createMessage(messageDesc, candidate);
+            } catch (err: any) {
+                return [`Failed to initialise message '${inputFqtn}': ${err?.message ?? String(err)}`];
+            }
+
+            const validationResult = validator.validate(messageDesc, protoMessage);
+            console.debug?.('[RealMcpClient.validateInputs] validation result', validationResult);
+            if (validationResult.kind === 'invalid') {
+                return validationResult.violations.map((v) => v.toString());
+            }
+            if (validationResult.kind === 'error') {
+                return [`Validation failed: ${validationResult.error.message}`];
+            }
+
+            // Attempt to materialize the request message to surface nested errors via protobuf.js.
             const materialized = requestType.fromObject(candidate);
             return [];
         } catch (err: any) {
             return [err?.message ?? String(err)];
         }
-    }
-
-    private applyPgvIndexRules(fqtn: string, type: any, candidate: Record<string, any>, index: Record<string, Record<string, any>>): string[] {
-        const violations: string[] = [];
-        const fieldMap = index[fqtn] ?? {};
-        const fields: any[] = Array.isArray(type.fieldsArray) ? type.fieldsArray : [];
-        for (const field of fields) {
-            const name: string = field.name;
-            const rules = fieldMap[name];
-            if (!rules) continue;
-            const value = candidate[name];
-
-            // message.required
-            const messageRules = rules.message;
-            if (messageRules?.required && (value === undefined || value === null || value === '')) {
-                violations.push(`field '${name}' is required`);
-                continue;
-            }
-
-            // string rules
-            if (rules.type?.case === 'string') {
-                const sr = rules.type.value || {};
-                const str = typeof value === 'string' ? value : '';
-                if (sr.minLen !== undefined && str.length < Number(sr.minLen)) {
-                    violations.push(`field '${name}' must be at least ${Number(sr.minLen)} characters`);
-                    continue;
-                }
-                if (Array.isArray(sr.in) && sr.in.length > 0 && str && !sr.in.includes(str)) {
-                    violations.push(`field '${name}' must be one of: ${sr.in.join(', ')}`);
-                    continue;
-                }
-            }
-        }
-        return violations;
-    }
-
-    private applyPgvRules(type: any, candidate: Record<string, any>): string[] {
-        const violations: string[] = [];
-        const fields: any[] = Array.isArray(type.fieldsArray) ? type.fieldsArray : [];
-
-        for (const field of fields) {
-            const fieldName: string = field.name;
-            const options: any = field.options ?? {};
-            const rules = options['(.validate.rules)'];
-            if (!rules || !rules.string) {
-                continue;
-            }
-
-            const stringRules = rules.string as Record<string, unknown>;
-            const rawValue = candidate[fieldName];
-            const value = typeof rawValue === 'string' ? rawValue : '';
-
-            if (stringRules.minLen !== undefined) {
-                const minLen = Number(stringRules.minLen);
-                if (!value || value.length < minLen) {
-                    violations.push(`field '${fieldName}' must be at least ${minLen} characters`);
-                    continue;
-                }
-            }
-
-            if (Array.isArray(stringRules.in) && stringRules.in.length > 0) {
-                if (!value || !stringRules.in.includes(value)) {
-                    violations.push(`field '${fieldName}' must be one of: ${stringRules.in.join(', ')}`);
-                    continue;
-                }
-            }
-        }
-
-        return violations;
     }
 
     private buildGrpcMetadata(): grpc.Metadata | undefined {
