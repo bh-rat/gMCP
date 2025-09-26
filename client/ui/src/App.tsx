@@ -1,4 +1,5 @@
 import React, { useState, useCallback } from 'react'
+import LLMIntegration from './LLMIntegration'
 
 interface Tool {
   name: string
@@ -185,7 +186,15 @@ const App: React.FC = () => {
         log('✅ Tool call successful', 'success')
       } else {
         setResult(`ERROR:\n${JSON.stringify(result, null, 2)}`)
-        log(`❌ Tool call failed: ${result.error}`, 'error')
+        // Use validation_type to provide specific error messages
+        if (result.validation_type === 'client-side') {
+          log(`❌ Tool call client-side validation failed: ${result.error}`, 'error')
+        } else if (result.validation_type === 'server-side') {
+          log(`❌ Tool call server-side error: ${result.error}`, 'error')
+        } else {
+          // Fallback for backwards compatibility
+          log(`❌ Tool call failed: ${result.error}`, 'error')
+        }
       }
 
     } catch (error: any) {
@@ -197,6 +206,7 @@ const App: React.FC = () => {
   const handleFormInputChange = useCallback((name: string, value: string) => {
     setFormInputs(prev => ({ ...prev, [name]: value }))
   }, [])
+
 
   const clearLogs = useCallback(() => {
     setLogs([])
@@ -423,6 +433,15 @@ const App: React.FC = () => {
             </div>
           )}
         </div>
+
+        {/* LLM Integration Section */}
+        <LLMIntegration
+          tools={tools}
+          connected={connected}
+          clientId={clientId}
+          makeApiCall={makeApiCall}
+          log={log}
+        />
 
         {/* Log Section */}
         <div style={{ padding: '20px', border: '1px solid #e0e0e0', borderRadius: '6px', background: '#fafafa' }}>

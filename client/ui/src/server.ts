@@ -4,7 +4,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import * as grpc from '@grpc/grpc-js';
 import * as protoLoader from '@grpc/proto-loader';
-import { McpClient } from '../../ts/dist/index.js';
+import { McpClient, LLMIntegration } from '../../ts/dist/index.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -16,7 +16,14 @@ type ClientInfo = {
   options?: { metadata?: Record<string, string> };
 };
 
+type LLMClientInfo = {
+  mcpClient: McpClient;
+  llmIntegration: LLMIntegration;
+  logs: Array<{message: string, type: 'info' | 'success' | 'error', timestamp: string}>;
+};
+
 const clients = new Map<string, ClientInfo>();
+const llmClients = new Map<string, LLMClientInfo>();
 
 const mimeTypes: Record<string, string> = {
   '.html': 'text/html',
@@ -98,6 +105,15 @@ async function handleApiRequest(req: http.IncomingMessage, res: http.ServerRespo
         break;
       case 'call-tool':
         await handleCallTool(data, res);
+        break;
+      case 'llm-init':
+        await handleLLMInit(data, res);
+        break;
+      case 'llm-send':
+        await handleLLMSend(data, res);
+        break;
+      case 'llm-clear':
+        await handleLLMClear(data, res);
         break;
       default:
         res.writeHead(404, { 'Content-Type': 'application/json' });
@@ -183,17 +199,32 @@ async function handleCallTool(data: any, res: http.ServerResponse) {
   if (validationErrors.length > 0) {
     client.close();
     res.writeHead(400, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ success: false, error: validationErrors[0], validation_errors: validationErrors }));
+    res.end(JSON.stringify({
+      success: false,
+      error: `Client-side validation failed: ${validationErrors[0]}`,
+      validation_errors: validationErrors,
+      validation_type: 'client-side'
+    }));
     return;
   }
-  const results: any[] = [];
-  for await (const chunk of client.call(toolName, args)) {
-    results.push(chunk);
-    if (chunk.final) break;
+  try {
+    const results: any[] = [];
+    for await (const chunk of client.call(toolName, args)) {
+      results.push(chunk);
+      if (chunk.final) break;
+    }
+    client.close();
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ success: true, results }));
+  } catch (serverError: any) {
+    client.close();
+    res.writeHead(500, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({
+      success: false,
+      error: `Server-side error: ${serverError.message || serverError}`,
+      validation_type: 'server-side'
+    }));
   }
-  client.close();
-  res.writeHead(200, { 'Content-Type': 'application/json' });
-  res.end(JSON.stringify({ success: true, results }));
 }
 
 server.listen(PORT, () => {
@@ -360,12 +391,6 @@ function deriveSchemaForInput(typeName: string): any {
   return deriveSchemaFromType(typeName);
 }
 
-function deriveSchemaForTool(toolName: string): any {
-  if (toolName === 'get_weather') {
-    return deriveSchemaFromType('examples.weather.GetWeatherRequest');
-  }
-  return { type: 'object', properties: {}, required: [] };
-}
 
 function deriveSchemaFromType(typeName: string): any {
   // Provide a basic schema for known example; extensible for future types
@@ -380,4 +405,88 @@ function deriveSchemaFromType(typeName: string): any {
     };
   }
   return { type: 'object', properties: {}, required: [] };
+}
+
+// LLM Integration handlers
+
+async function handleLLMInit(data: any, res: http.ServerResponse) {
+  const { clientId, apiKey, systemPrompt } = data;
+
+  const info = clients.get(clientId);
+  if (!info) {
+    res.writeHead(400, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ success: false, error: 'Client not connected' }));
+    return;
+  }
+
+  try {
+    const mcpClient = new McpClient(info.address, info.options);
+    await mcpClient.connect();
+
+    const logs: Array<{message: string, type: 'info' | 'success' | 'error', timestamp: string}> = [];
+
+    const llmIntegration = new LLMIntegration(mcpClient, {
+      apiKey,
+      systemPrompt,
+      onLog: (message: string, type: 'info' | 'success' | 'error' = 'info') => {
+        const timestamp = new Date().toISOString();
+        logs.push({ message, type, timestamp });
+      }
+    });
+
+    await llmIntegration.updateSystemPromptWithTools();
+
+    llmClients.set(clientId, { mcpClient, llmIntegration, logs });
+
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ success: true }));
+  } catch (error: any) {
+    res.writeHead(500, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ success: false, error: error.message }));
+  }
+}
+
+async function handleLLMSend(data: any, res: http.ServerResponse) {
+  const { clientId, message } = data;
+
+  const llmClient = llmClients.get(clientId);
+  if (!llmClient) {
+    res.writeHead(400, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ success: false, error: 'LLM client not initialized' }));
+    return;
+  }
+
+  try {
+    const conversation = await llmClient.llmIntegration.sendMessage(message);
+
+    // Get and clear accumulated logs
+    const logs = [...llmClient.logs];
+    llmClient.logs.length = 0; // Clear the logs array
+
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ success: true, conversation, logs }));
+  } catch (error: any) {
+    res.writeHead(500, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ success: false, error: error.message }));
+  }
+}
+
+async function handleLLMClear(data: any, res: http.ServerResponse) {
+  const { clientId } = data;
+
+  const llmClient = llmClients.get(clientId);
+  if (!llmClient) {
+    res.writeHead(400, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ success: false, error: 'LLM client not initialized' }));
+    return;
+  }
+
+  try {
+    llmClient.llmIntegration.clearConversation();
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ success: true }));
+  } catch (error: any) {
+    res.writeHead(500, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ success: false, error: error.message }));
+  }
 }
