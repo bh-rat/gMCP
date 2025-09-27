@@ -16,7 +16,7 @@ help:
 # Generate code from protobuf definitions
 generate:
 	@echo "Generating code from protobuf definitions..."
-	cd tools && buf generate
+	buf generate --template buf.gen.yaml
 
 # Build all components
 build: generate
@@ -37,7 +37,7 @@ test:
 # Lint protobuf files
 lint:
 	@echo "Linting protobuf files..."
-	cd tools && buf lint
+	buf lint
 
 # Clean generated files
 clean:

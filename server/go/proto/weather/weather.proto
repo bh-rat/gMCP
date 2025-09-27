@@ -1,0 +1,55 @@
+syntax = "proto3";
+package examples.weather;
+
+import "buf/validate/validate.proto";
+
+option go_package = "mcp-server/proto/weather";
+
+message GetWeatherRequest {
+  // Enforce complex semantics for direct weather queries as well.
+  option (buf.validate.message).cel = {
+    id: "request_complex_semantics"
+    message: "imperial requires US location; location must be a readable place name"
+    expression: "(this.units == 'imperial' ? (this.location.endsWith('US') || this.location.endsWith('USA') || this.location.endsWith('United States')) : !(this.location.endsWith('US') || this.location.endsWith('USA') || this.location.endsWith('United States'))) && size(this.location) >= 2 && !this.location.startsWith('-') && !this.location.startsWith(' ')"
+  };
+  string location = 1 [(buf.validate.field).string = {min_len: 1}];
+  string units    = 2 [(buf.validate.field).string = {in: ["metric", "imperial"]}];
+}
+
+message GetWeatherResponse {
+  double temperature = 1;
+  string conditions = 2;
+  uint32 humidity = 3;
+  string units = 4;
+  string location = 5;
+}
+
+message GetWeatherForecastRequest {
+  // Complex cross-field rule using CEL to demonstrate Protovalidate capabilities.
+  // - If units == "imperial", location must end with a U.S. marker (US/USA/United States)
+  // - Otherwise (metric), location must not end with a U.S. marker
+  // - Additionally, location must not look like a URL, IP, email, or host:port
+  // - And it must be a minimally readable name (basic length & prefix checks)
+  option (buf.validate.message).cel = {
+    id: "forecast_complex_semantics"
+    message: "imperial requires US location; location must be a readable place name"
+    expression: "(this.units == 'imperial' ? (this.location.endsWith('US') || this.location.endsWith('USA') || this.location.endsWith('United States')) : !(this.location.endsWith('US') || this.location.endsWith('USA') || this.location.endsWith('United States'))) && size(this.location) >= 2 && !this.location.startsWith('-') && !this.location.startsWith(' ')"
+  };
+  string location = 1 [(buf.validate.field).string = {min_len: 1}];
+  string date     = 2 [(buf.validate.field).string = {min_len: 1}];
+  string units    = 3 [(buf.validate.field).string = {in: ["metric", "imperial"]}];
+}
+
+message GetWeatherForecastResponse {
+  double temperature = 1;
+  string conditions = 2;
+  uint32 humidity = 3;
+  string date = 4;
+  string location = 5;
+  string units = 6;
+}
+
+service WeatherService {
+  rpc GetWeather(GetWeatherRequest) returns (GetWeatherResponse);
+  rpc GetWeatherForecast(GetWeatherForecastRequest) returns (GetWeatherForecastResponse);
+}

@@ -1,0 +1,28 @@
+
+ö
+examples/weather.protoexamples.weather"E
+GetWeatherRequest
+location (	Rlocation
+units (	Runits"u
+GetWeatherResponse#
+temperature_c (RtemperatureC
+
+conditions (	R
+conditions
+humidity (Rhumidity"a
+GetWeatherForecastRequest
+location (	Rlocation
+date (	Rdate
+units (	Runits"­
+GetWeatherForecastResponse#
+temperature_c (RtemperatureC
+
+conditions (	R
+conditions
+humidity (Rhumidity
+date (	Rdate
+location (	Rlocation2Ú
+WeatherServiceW
+
+GetWeather#.examples.weather.GetWeatherRequest$.examples.weather.GetWeatherResponseo
+GetWeatherForecast+.examples.weather.GetWeatherForecastRequest,.examples.weather.GetWeatherForecastResponseBZ./examples/weatherbproto3
