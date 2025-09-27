@@ -66,7 +66,7 @@ Note: TS code is generated via `es` and `connect-es` plugins; Go code requires t
 
 ## Run the demo UI (optional)
 ```bash
-cd client/ui
+cd client
 npm install
 npm run build  # Builds both frontend and server
 npm run start
