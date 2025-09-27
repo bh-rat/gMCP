@@ -17,16 +17,13 @@ message ListToolsRequest {
 message ListToolsResponse {
   repeated Tool tools = 1;
   string next_cursor = 2;
-  // NOTE: no server_id/protocol_version here (embedded in descriptors via FileOptions).
 }
 
 message Tool {
   string name = 1 [(buf.validate.field).string = {min_len: 1}];
   string title = 2 [(buf.validate.field).string = {min_len: 1}];
   string description = 3;
-  string input_type  = 4 [(buf.validate.field).string = {min_len: 1}];  // fully-qualified proto message name
-  string output_type = 5 [(buf.validate.field).string = {min_len: 1}];  // fully-qualified proto message name
-  string grpc_service = 6; // optional fully-qualified service name
-  string grpc_method  = 7; // optional method on the service
-  map<string,string> annotations = 9; // e.g., {"idempotent":"true"}
+  string grpc_service = 4;
+  string grpc_method  = 5;
+  map<string,string> annotations = 6; // e.g., {"idempotent":"true"}
 }

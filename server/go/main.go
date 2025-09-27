@@ -11,7 +11,7 @@ import (
 	"buf.build/go/protovalidate"
 	_ "buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go/buf/validate"
 
-	mcpv0 "mcp-server/mcp/v0"
+	mcpv0 "mcp-server/proto/mcp/v0"
 	weather "mcp-server/proto/weather"
 
 	"google.golang.org/grpc"
@@ -34,10 +34,21 @@ func (s *weatherService) GetWeather(ctx context.Context, req *weather.GetWeather
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
 
+	// Mock temperature in Celsius
+	tempC := 22.5
+	temperature := tempC
+
+	// Convert to Fahrenheit if imperial units requested
+	if req.GetUnits() == "imperial" {
+		temperature = tempC*9/5 + 32 // Convert C to F
+	}
+
 	return &weather.GetWeatherResponse{
-		TemperatureC: 22.5,
-		Conditions:   "Partly cloudy",
-		Humidity:     65,
+		Temperature: temperature,
+		Conditions:  "Partly cloudy",
+		Humidity:    65,
+		Units:       req.GetUnits(),
+		Location:    req.GetLocation(),
 	}, nil
 }
 
@@ -50,12 +61,22 @@ func (s *weatherService) GetWeatherForecast(ctx context.Context, req *weather.Ge
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
 
+	// Mock temperature in Celsius
+	tempC := 24.8
+	temperature := tempC
+
+	// Convert to Fahrenheit if imperial units requested
+	if req.GetUnits() == "imperial" {
+		temperature = tempC*9/5 + 32 // Convert C to F
+	}
+
 	return &weather.GetWeatherForecastResponse{
-		TemperatureC: 24.8,
-		Conditions:   "Sunny with light clouds",
-		Humidity:     58,
-		Date:         req.GetDate(),
-		Location:     req.GetLocation(),
+		Temperature: temperature,
+		Conditions:  "Sunny with light clouds",
+		Humidity:    58,
+		Date:        req.GetDate(),
+		Location:    req.GetLocation(),
+		Units:       req.GetUnits(),
 	}, nil
 }
 
@@ -70,18 +91,11 @@ func (s *simpleService) ListTools(ctx context.Context, req *mcpv0.ListToolsReque
 		weatherServiceName = string(weatherSvc.FullName())
 	}
 
-	getWeatherInput := string((&weather.GetWeatherRequest{}).ProtoReflect().Descriptor().FullName())
-	getWeatherOutput := string((&weather.GetWeatherResponse{}).ProtoReflect().Descriptor().FullName())
-	getForecastInput := string((&weather.GetWeatherForecastRequest{}).ProtoReflect().Descriptor().FullName())
-	getForecastOutput := string((&weather.GetWeatherForecastResponse{}).ProtoReflect().Descriptor().FullName())
-
 	tools := []*mcpv0.Tool{
 		{
 			Name:        "get_weather",
 			Title:       "Get Weather",
-			Description: "Get current weather conditions for a location",
-			InputType:   getWeatherInput,
-			OutputType:  getWeatherOutput,
+			Description: "Get current weather conditions for a location. The location can be a city name or address. The units can be 'metric' (Celsius) or 'imperial' (Fahrenheit). Both are required.",
 			GrpcService: weatherServiceName,
 			GrpcMethod:  "GetWeather",
 			Annotations: map[string]string{"idempotent": "true"},
@@ -90,8 +104,6 @@ func (s *simpleService) ListTools(ctx context.Context, req *mcpv0.ListToolsReque
 			Name:        "get_weather_forecast",
 			Title:       "Get Weather Forecast",
 			Description: "Get weather forecast for a future date. Use get_weather for today's weather.",
-			InputType:   getForecastInput,
-			OutputType:  getForecastOutput,
 			GrpcService: weatherServiceName,
 			GrpcMethod:  "GetWeatherForecast",
 			Annotations: map[string]string{"idempotent": "true"},

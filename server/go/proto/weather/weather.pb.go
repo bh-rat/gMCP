@@ -76,9 +76,11 @@ func (x *GetWeatherRequest) GetUnits() string {
 
 type GetWeatherResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	TemperatureC  float64                `protobuf:"fixed64,1,opt,name=temperature_c,json=temperatureC,proto3" json:"temperature_c,omitempty"`
+	Temperature   float64                `protobuf:"fixed64,1,opt,name=temperature,proto3" json:"temperature,omitempty"`
 	Conditions    string                 `protobuf:"bytes,2,opt,name=conditions,proto3" json:"conditions,omitempty"`
 	Humidity      uint32                 `protobuf:"varint,3,opt,name=humidity,proto3" json:"humidity,omitempty"`
+	Units         string                 `protobuf:"bytes,4,opt,name=units,proto3" json:"units,omitempty"`
+	Location      string                 `protobuf:"bytes,5,opt,name=location,proto3" json:"location,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -113,9 +115,9 @@ func (*GetWeatherResponse) Descriptor() ([]byte, []int) {
 	return file_weather_weather_proto_rawDescGZIP(), []int{1}
 }
 
-func (x *GetWeatherResponse) GetTemperatureC() float64 {
+func (x *GetWeatherResponse) GetTemperature() float64 {
 	if x != nil {
-		return x.TemperatureC
+		return x.Temperature
 	}
 	return 0
 }
@@ -132,6 +134,20 @@ func (x *GetWeatherResponse) GetHumidity() uint32 {
 		return x.Humidity
 	}
 	return 0
+}
+
+func (x *GetWeatherResponse) GetUnits() string {
+	if x != nil {
+		return x.Units
+	}
+	return ""
+}
+
+func (x *GetWeatherResponse) GetLocation() string {
+	if x != nil {
+		return x.Location
+	}
+	return ""
 }
 
 type GetWeatherForecastRequest struct {
@@ -196,11 +212,12 @@ func (x *GetWeatherForecastRequest) GetUnits() string {
 
 type GetWeatherForecastResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	TemperatureC  float64                `protobuf:"fixed64,1,opt,name=temperature_c,json=temperatureC,proto3" json:"temperature_c,omitempty"`
+	Temperature   float64                `protobuf:"fixed64,1,opt,name=temperature,proto3" json:"temperature,omitempty"`
 	Conditions    string                 `protobuf:"bytes,2,opt,name=conditions,proto3" json:"conditions,omitempty"`
 	Humidity      uint32                 `protobuf:"varint,3,opt,name=humidity,proto3" json:"humidity,omitempty"`
 	Date          string                 `protobuf:"bytes,4,opt,name=date,proto3" json:"date,omitempty"`
 	Location      string                 `protobuf:"bytes,5,opt,name=location,proto3" json:"location,omitempty"`
+	Units         string                 `protobuf:"bytes,6,opt,name=units,proto3" json:"units,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -235,9 +252,9 @@ func (*GetWeatherForecastResponse) Descriptor() ([]byte, []int) {
 	return file_weather_weather_proto_rawDescGZIP(), []int{3}
 }
 
-func (x *GetWeatherForecastResponse) GetTemperatureC() float64 {
+func (x *GetWeatherForecastResponse) GetTemperature() float64 {
 	if x != nil {
-		return x.TemperatureC
+		return x.Temperature
 	}
 	return 0
 }
@@ -270,6 +287,13 @@ func (x *GetWeatherForecastResponse) GetLocation() string {
 	return ""
 }
 
+func (x *GetWeatherForecastResponse) GetUnits() string {
+	if x != nil {
+		return x.Units
+	}
+	return ""
+}
+
 var File_weather_weather_proto protoreflect.FileDescriptor
 
 const file_weather_weather_proto_rawDesc = "" +
@@ -278,26 +302,29 @@ const file_weather_weather_proto_rawDesc = "" +
 	"\x11GetWeatherRequest\x12#\n" +
 	"\blocation\x18\x01 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\blocation\x12-\n" +
 	"\x05units\x18\x02 \x01(\tB\x17\xbaH\x14r\x12R\x06metricR\bimperialR\x05units:\xc1\x03\xbaH\xbd\x03\x1a\xba\x03\n" +
-	"\x19request_complex_semantics\x12Eimperial requires US location; location must be a readable place name\x1a\xd5\x02(this.units == 'imperial' ? (this.location.endsWith('US') || this.location.endsWith('USA') || this.location.endsWith('United States')) : !(this.location.endsWith('US') || this.location.endsWith('USA') || this.location.endsWith('United States'))) && size(this.location) >= 2 && !this.location.startsWith('-') && !this.location.startsWith(' ')\"u\n" +
-	"\x12GetWeatherResponse\x12#\n" +
-	"\rtemperature_c\x18\x01 \x01(\x01R\ftemperatureC\x12\x1e\n" +
+	"\x19request_complex_semantics\x12Eimperial requires US location; location must be a readable place name\x1a\xd5\x02(this.units == 'imperial' ? (this.location.endsWith('US') || this.location.endsWith('USA') || this.location.endsWith('United States')) : !(this.location.endsWith('US') || this.location.endsWith('USA') || this.location.endsWith('United States'))) && size(this.location) >= 2 && !this.location.startsWith('-') && !this.location.startsWith(' ')\"\xa4\x01\n" +
+	"\x12GetWeatherResponse\x12 \n" +
+	"\vtemperature\x18\x01 \x01(\x01R\vtemperature\x12\x1e\n" +
 	"\n" +
 	"conditions\x18\x02 \x01(\tR\n" +
 	"conditions\x12\x1a\n" +
-	"\bhumidity\x18\x03 \x01(\rR\bhumidity\"\xd1\x04\n" +
+	"\bhumidity\x18\x03 \x01(\rR\bhumidity\x12\x14\n" +
+	"\x05units\x18\x04 \x01(\tR\x05units\x12\x1a\n" +
+	"\blocation\x18\x05 \x01(\tR\blocation\"\xd1\x04\n" +
 	"\x19GetWeatherForecastRequest\x12#\n" +
 	"\blocation\x18\x01 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\blocation\x12\x1b\n" +
 	"\x04date\x18\x02 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\x04date\x12-\n" +
 	"\x05units\x18\x03 \x01(\tB\x17\xbaH\x14r\x12R\x06metricR\bimperialR\x05units:\xc2\x03\xbaH\xbe\x03\x1a\xbb\x03\n" +
-	"\x1aforecast_complex_semantics\x12Eimperial requires US location; location must be a readable place name\x1a\xd5\x02(this.units == 'imperial' ? (this.location.endsWith('US') || this.location.endsWith('USA') || this.location.endsWith('United States')) : !(this.location.endsWith('US') || this.location.endsWith('USA') || this.location.endsWith('United States'))) && size(this.location) >= 2 && !this.location.startsWith('-') && !this.location.startsWith(' ')\"\xad\x01\n" +
-	"\x1aGetWeatherForecastResponse\x12#\n" +
-	"\rtemperature_c\x18\x01 \x01(\x01R\ftemperatureC\x12\x1e\n" +
+	"\x1aforecast_complex_semantics\x12Eimperial requires US location; location must be a readable place name\x1a\xd5\x02(this.units == 'imperial' ? (this.location.endsWith('US') || this.location.endsWith('USA') || this.location.endsWith('United States')) : !(this.location.endsWith('US') || this.location.endsWith('USA') || this.location.endsWith('United States'))) && size(this.location) >= 2 && !this.location.startsWith('-') && !this.location.startsWith(' ')\"\xc0\x01\n" +
+	"\x1aGetWeatherForecastResponse\x12 \n" +
+	"\vtemperature\x18\x01 \x01(\x01R\vtemperature\x12\x1e\n" +
 	"\n" +
 	"conditions\x18\x02 \x01(\tR\n" +
 	"conditions\x12\x1a\n" +
 	"\bhumidity\x18\x03 \x01(\rR\bhumidity\x12\x12\n" +
 	"\x04date\x18\x04 \x01(\tR\x04date\x12\x1a\n" +
-	"\blocation\x18\x05 \x01(\tR\blocation2\xda\x01\n" +
+	"\blocation\x18\x05 \x01(\tR\blocation\x12\x14\n" +
+	"\x05units\x18\x06 \x01(\tR\x05units2\xda\x01\n" +
 	"\x0eWeatherService\x12W\n" +
 	"\n" +
 	"GetWeather\x12#.examples.weather.GetWeatherRequest\x1a$.examples.weather.GetWeatherResponse\x12o\n" +

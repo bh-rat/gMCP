@@ -17,9 +17,11 @@ message GetWeatherRequest {
 }
 
 message GetWeatherResponse {
-  double temperature_c = 1;
-  string conditions    = 2;
-  uint32 humidity      = 3;
+  double temperature = 1;
+  string conditions = 2;
+  uint32 humidity = 3;
+  string units = 4;
+  string location = 5;
 }
 
 message GetWeatherForecastRequest {
@@ -39,11 +41,12 @@ message GetWeatherForecastRequest {
 }
 
 message GetWeatherForecastResponse {
-  double temperature_c = 1;
-  string conditions    = 2;
-  uint32 humidity      = 3;
-  string date          = 4;
-  string location      = 5;
+  double temperature = 1;
+  string conditions = 2;
+  uint32 humidity = 3;
+  string date = 4;
+  string location = 5;
+  string units = 6;
 }
 
 service WeatherService {
