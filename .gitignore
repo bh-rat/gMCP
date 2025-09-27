@@ -1,0 +1,63 @@
+# OS / Editor / IDE
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*.iml
+.idea/
+.vscode/
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Node
+node_modules/
+**/node_modules/
+
+# Build outputs & caches
+build/
+**/build/
+dist/
+**/dist/
+coverage/
+**/coverage/
+*.lcov
+.vite/
+**/.vite/
+*.tsbuildinfo
+
+# Docker / local binaries
+mcp-server
+
+# Documentation (requested)
+docs/
+
+# Proto code generation (Go)
+**/*.pb.go
+**/*_grpc.pb.go
+**/*_connect.go
+**/*_connect.pb.go
+**/*.protoset
+
+# Proto code generation (TS/JS)
+client/ts/src/generated/
+client/ts/dist/
+client/ui/dist/
+
+# Misc caches
+**/.cache/
+**/.parcel-cache/
+client/src/generated/
+client/dist/
+client/.parcel-cache/
+client/.pnp.*
